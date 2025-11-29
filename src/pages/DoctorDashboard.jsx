@@ -297,7 +297,7 @@ const DoctorDashboard = () => {
                                                 <div className={`max-w-[80%] p-3 rounded-xl text-sm ${msg.sender === 'user' ? 'bg-blue-100 text-blue-900' : 'bg-white border border-slate-200 text-slate-700'
                                                     }`}>
                                                     {msg.text}
-                                                    {msg.imageUrl && <img src={msg.imageUrl} alt="Attachment" className="mt-2 rounded-lg" />}
+                                                    {msg.imageUrl && <img src={msg.imageUrl} alt="Attachment" className="mt-2 rounded-lg blur-md" style={{ filter: 'blur(8px)' }} />}
                                                 </div>
                                             </div>
                                         ))}

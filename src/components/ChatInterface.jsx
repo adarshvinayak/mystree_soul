@@ -2,22 +2,50 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Camera, Image as ImageIcon, MoreVertical, Phone } from 'lucide-react';
 import { useStore } from '../data/simulated_database';
+import clsx from 'clsx';
 
 const ChatInterface = ({ patient }) => {
     const { cases, updateCaseStatus, addMessageToCase, createCase, updateCase } = useStore();
-    // Only find cases that are still being analyzed (not yet sent to doctor)
+    // Find active case for chat (ANALYZING status) - for sending new messages
     const currentCase = cases.find(c => c.patientId === patient.id && c.status === 'ANALYZING');
+    // Find approved case for report display
+    const approvedCase = cases.find(c => c.patientId === patient.id && c.status === 'APPROVED');
+    // Find any case for loading chat history (prioritize ANALYZING, then most recent)
+    const chatCase = cases
+        .filter(c => c.patientId === patient.id)
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
 
     // Initialize messages from store or default
     const [messages, setMessages] = useState([]);
+    const [lastCaseId, setLastCaseId] = useState(null);
+    const [isNewChat, setIsNewChat] = useState(false);
 
     useEffect(() => {
-        if (currentCase?.chatHistory && currentCase.chatHistory.length > 0) {
-            setMessages(currentCase.chatHistory);
-        } else {
+        // If user started a new chat, don't load from existing cases
+        if (isNewChat) {
+            return;
+        }
+
+        // Load messages from the most recent case for this patient
+        if (chatCase?.chatHistory && chatCase.chatHistory.length > 0) {
+            // Update if it's a different case
+            if (chatCase.id !== lastCaseId) {
+                setMessages(chatCase.chatHistory);
+                setLastCaseId(chatCase.id);
+            }
+            // Note: We don't sync messages.length here to avoid overwriting local state updates
+            // Messages are updated directly in handleSend and handleImageUpload
+        } else if (!chatCase && messages.length === 0 && !isNewChat) {
+            // Only show default greeting if there's no case and no messages
             setMessages([{ id: 1, sender: 'bot', text: `Good Morning, ${patient.name}. How are you feeling today?` }]);
         }
-    }, [currentCase?.id, patient.name]); // Only reset if patient/case changes
+    }, [chatCase?.id, patient?.id, isNewChat]); // Update when case ID or patient changes
+
+    // Reset new chat flag when patient changes
+    useEffect(() => {
+        setIsNewChat(false);
+        setLastCaseId(null);
+    }, [patient?.id]);
 
     const [inputText, setInputText] = useState('');
     const [isTyping, setIsTyping] = useState(false);
@@ -198,14 +226,14 @@ const ChatInterface = ({ patient }) => {
 
     // Listen for report approval
     useEffect(() => {
-        if (currentCase?.status === 'APPROVED') {
+        if (approvedCase) {
             setShowReport(true);
             // Trigger a toast notification for the user
             window.dispatchEvent(new CustomEvent('mystree-toast', {
                 detail: { message: 'Dr. Sharma has approved your diagnosis.' }
             }));
         }
-    }, [currentCase?.status]);
+    }, [approvedCase?.id]);
 
     const handleSend = async () => {
         if (!inputText.trim()) return;
@@ -214,13 +242,15 @@ const ChatInterface = ({ patient }) => {
         setMessages(prev => [...prev, newMsg]);
 
         let activeCaseId;
-        if (currentCase) {
+        if (currentCase && !isNewChat) {
             addMessageToCase(currentCase.id, newMsg);
             activeCaseId = currentCase.id;
         } else {
             // Create case with ANALYZING status so it's hidden from doctor
             const newCase = createCase(patient.id, newMsg, 'ANALYZING');
             activeCaseId = newCase.id;
+            setLastCaseId(newCase.id);
+            setIsNewChat(false); // Reset flag after creating new case
         }
 
         setInputText('');
@@ -367,9 +397,21 @@ const ChatInterface = ({ patient }) => {
                         </div>
 
                         <div className="mb-8">
-                            <h3 className="font-bold text-slate-800 mb-2 uppercase text-xs tracking-wider text-primary">Diagnosis & Assessment</h3>
+                            <div className="flex items-center justify-between mb-2">
+                                <h3 className="font-bold text-slate-800 uppercase text-xs tracking-wider text-primary">Diagnosis & Assessment</h3>
+                                {approvedCase?.riskLevel && (
+                                    <span className={clsx(
+                                        "text-xs px-3 py-1 rounded-full font-bold",
+                                        approvedCase.riskLevel === 'HIGH' ? 'bg-red-100 text-red-700' :
+                                        approvedCase.riskLevel === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700' :
+                                        'bg-green-100 text-green-700'
+                                    )}>
+                                        {approvedCase.riskLevel} RISK
+                                    </span>
+                                )}
+                            </div>
                             <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 text-slate-700 leading-relaxed">
-                                {currentCase?.aiAssessment || "Assessment pending..."}
+                                {approvedCase?.aiAssessment || currentCase?.aiAssessment || "Assessment pending..."}
                             </div>
                         </div>
 
@@ -457,7 +499,7 @@ const ChatInterface = ({ patient }) => {
                             : 'bg-white text-slate-700 rounded-tl-none shadow-sm border border-slate-100'
                             }`}>
                             {msg.isImage ? (
-                                <img src={msg.imageUrl} alt="Uploaded" className="rounded-lg mb-2" />
+                                <img src={msg.imageUrl} alt="Uploaded" className="rounded-lg mb-2 blur-md" style={{ filter: 'blur(8px)' }} />
                             ) : (
                                 <p className="text-sm leading-relaxed">{msg.text}</p>
                             )}
@@ -537,23 +579,17 @@ const ChatInterface = ({ patient }) => {
 
             {/* Input Area */}
             <div className="p-4 bg-white border-t border-slate-100">
-                {/* Reset Chat Option */}
-                {(currentCase?.status === 'PENDING_REVIEW' || currentCase?.status === 'RESOLVED') && (
+                {/* Start New Chat Option */}
+                {chatCase && (chatCase.status === 'PENDING_REVIEW' || chatCase.status === 'APPROVED' || chatCase.status === 'RESOLVED') && (
                     <div className="flex justify-center mb-3">
                         <button
                             onClick={() => {
-                                // Reset local state to start fresh
-                                setMessages([{ id: Date.now(), sender: 'bot', text: `Hi ${patient.name}, how can I help you now?` }]);
-                                // We don't clear the currentCase from store immediately, 
-                                // but the handleSend logic creates a new case if the current one isn't ANALYZING
-                                // However, we need to make sure the UI knows we are starting fresh.
-                                // The easiest way is to just let the user type, and handleSend will create a new case
-                                // because we filter for 'ANALYZING' status in the component mount.
-                                // But since 'currentCase' variable is derived from store, we need to force a refresh or ignore it.
-
-                                // Actually, since we filter `currentCase` by `status === 'ANALYZING'`, 
-                                // if the status is PENDING_REVIEW or RESOLVED, `currentCase` will be undefined on next render/check.
-                                // So simply clearing messages visually is enough for the user to feel it's a new chat.
+                                // Reset messages to start fresh
+                                const newGreeting = { id: Date.now(), sender: 'bot', text: `Hi ${patient.name}, how can I help you now?` };
+                                setMessages([newGreeting]);
+                                setLastCaseId(null);
+                                setIsNewChat(true);
+                                // Clear the old case reference so a new one will be created on next message
                             }}
                             className="text-xs text-slate-400 bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded-full transition-colors flex items-center gap-1"
                         >
