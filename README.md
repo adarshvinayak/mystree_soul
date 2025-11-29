@@ -1,5 +1,11 @@
 # MyStree Soul
 
+> **⚠️ IMPORTANT NOTICE: This is a PROTOTYPE**
+> 
+> This application is a prototype demonstration. Due to time constraints, all agent interactions are **simulated** and may not be medically accurate. All patient data, health metrics, diagnoses, and AI assessments are **simulated** for demonstration purposes only. This application should **NOT** be used for actual medical diagnosis or treatment.
+
+---
+
 MyStree Soul is a comprehensive healthcare platform designed to bridge the gap between patients and doctors, specifically focusing on women's health. It features a dual-interface system: a mobile-first Patient App for symptom tracking and AI consultations, and a desktop-optimized Doctor Dashboard for case management and diagnosis.
 
 ## Features
